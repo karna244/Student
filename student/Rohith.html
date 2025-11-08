@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Online Attendance — Single-file</title>
+  <style>
+    :root{--accent:#4f46e5;--card:#ffffff;--muted:#6b7280}
+    *{box-sizing:border-box}
+    body{font-family:Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,'Helvetica Neue',Arial; margin:0;background:#f3f4f6;color:#111}
+    header{background:linear-gradient(90deg,#eef2ff,white);padding:18px 20px;display:flex;align-items:center;justify-content:space-between;gap:12px}
+    h1{font-size:18px;margin:0}
+    .container{max-width:1100px;margin:20px auto;padding:16px}
+    .card{background:var(--card);border-radius:12px;padding:16px;box-shadow:0 6px 18px rgba(17,24,39,0.06);margin-bottom:16px}
+    .controls{display:flex;gap:8px;flex-wrap:wrap}
+    input[type=text],select{padding:8px 10px;border-radius:8px;border:1px solid #e5e7eb;min-width:160px}
+    button{background:var(--accent);color:white;padding:8px 12px;border-radius:10px;border:0;cursor:pointer}
+    button.ghost{background:transparent;color:var(--accent);border:1px solid rgba(79,70,229,0.12)}
+    .flex{display:flex;gap:12px;align-items:center}
+    table{width:100%;border-collapse:collapse;margin-top:12px}
+    th,td{padding:10px;border-bottom:1px solid #f3f4f6;text-align:left}
+    th{background:#fafafa}
+    .presence{display:flex;gap:6px}
+    .pill{padding:6px 10px;border-radius:999px;font-size:13px}
+    .present{background:#ecfdf5;color:#065f46}
+    .absent{background:#fff7ed;color:#7c2d12}
+    .late{background:#f0f9ff;color:#0369a1}
+    .controls .search{flex:1}
+    .small{font-size:13px;color:var(--muted)}
+    .right{margin-left:auto}
+    .actions{display:flex;gap:8px}
+    @media (max-width:720px){.controls{flex-direction:column;align-items:stretch}.right{margin-left:0}}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Online Attendance • Single-file</h1>
+    <div class="small">Built: lightweight • Saves to your browser (localStorage)</div>
+  </header>
+
+  <main class="container">
+    <section class="card" id="setup">
+      <div class="controls">
+        <label class="flex"><strong>Date</strong>&nbsp;
+          <input type="date" id="date" />
+        </label>
+
+        <label class="flex"><strong>Class / Section</strong>&nbsp;
+          <input type="text" id="className" placeholder="e.g. 10-A, CS101" />
+        </label>
+
+        <div class="right actions">
+          <button id="loadSample">Load sample</button>
+          <button id="clearAll" class="ghost">Clear all data</button>
+        </div>
+      </div>
+      <div class="small" style="margin-top:8px">Tip: data is stored in your browser. Use export/import to move between devices.</div>
+    </section>
+
+    <section class="card">
+      <div style="display:flex;align-items:center;gap:12px;">
+        <div style="flex:1">
+          <input id="search" class="search" type="text" placeholder="Search student name or roll..." />
+        </div>
+        <div class="actions">
+          <input type="file" id="fileImport" accept="text/csv" style="display:none" />
+          <button id="btnImport" class="ghost">Import CSV</button>
+          <button id="btnExport">Export CSV</button>
+        </div>
+      </div>
+
+      <div style="margin-top:12px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+        <input type="text" id="newName" placeholder="Student name" />
+        <input type="text" id="newRoll" placeholder="Roll number (optional)" />
+        <button id="addStudent">Add student</button>
+      </div>
+
+      <table id="studentsTable">
+        <thead>
+          <tr><th style="width:44%">Name</th><th style="width:16%">Roll</th><th style="width:28%">Status</th><th style="width:12%">Actions</th></tr>
+        </thead>
+        <tbody>
+        </tbody>
+      </table>
+    </section>
+
+    <section class="card">
+      <div style="display:flex;align-items:center;gap:12px">
+        <div><strong>Summary</strong></div>
+        <div class="small right" id="summaryText">—</div>
+      </div>
+      <div style="margin-top:12px;display:flex;gap:10px;flex-wrap:wrap">
+        <button id="markAllPresent" class="ghost">Mark all Present</button>
+        <button id="markAllAbsent" class="ghost">Mark all Absent</button>
+        <button id="markAllLate" class="ghost">Mark all Late</button>
+        <button id="printBtn">Print</button>
+      </div>
+    </section>
+
+    <section class="card small" id="notes">
+      <strong>How it works</strong>
+      <ul>
+        <li>Pick a date. Attendance is saved per date &amp; class. You can maintain multiple dates.</li>
+        <li>Use Import / Export (CSV) to move records between devices or share with colleagues.</li>
+        <li>Data lives in your browser (localStorage). If you want server storage, I can add a backend API later.</li>
+      </ul>
+    </section>
+
+  </main>
+
+  <script>
+    // Simple single-file attendance system using localStorage.
+    const STORAGE_KEY = 'attendance-v1';
+
+    // DOM
+    const dateInput = document.getElementById('date');
+    const classNameInput = document.getElementById('className');
+    const studentsTableBody = document.querySelector('#studentsTable tbody');
+    const newName = document.getElementById('newName');
+    const newRoll = document.getElementById('newRoll');
+    const addStudentBtn = document.getElementById('addStudent');
+    const searchInput = document.getElementById('search');
+    const summaryText = document.getElementById('summaryText');
+    const btnExport = document.getElementById('btnExport');
+    const btnImport = document.getElementById('btnImport');
+    const fileImport = document.getElementById('fileImport');
+    const loadSample = document.getElementById('loadSample');
+    const clearAll = document.getElementById('clearAll');
+    const markAllPresent = document.getElementById('markAllPresent');
+    const markAllAbsent = document.getElementById('markAllAbsent');
+    const markAllLate = document.getElementById('markAllLate');
+    const printBtn = document.getElementById('printBtn');
+
+    // state
+    let state = loadState();
+
+    // helpers
+    function todayISO(){ const d=new Date(); d.setMinutes(d.getMinutes()-d.getTimezoneOffset()); return d.toISOString().slice(0,10); }
+    if(!dateInput.value) dateInput.value = todayISO();
+
+    function saveState(){ localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); }
+    function loadState(){ try{ const raw = localStorage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : {classes:{}} }catch(e){console.error(e); return {classes:{}}} }
+
+    function getKey(){ const cls = classNameInput.value.trim() || 'default'; const date = dateInput.value; return cls + '|' + date; }
+
+    function ensureList(){ const k = getKey(); if(!state.classes[k]) state.classes[k] = {students:[]} }
+
+    function render(){ ensureList(); const k = getKey(); const list = state.classes[k].students || [];
+      // filter
+      const q = searchInput.value.trim().toLowerCase();
+      const filtered = list.filter(s=> !q || (s.name && s.name.toLowerCase().includes(q)) || (s.roll && s.roll.toLowerCase().includes(q)) );
+
+      studentsTableBody.innerHTML = '';
+      filtered.forEach((s, idx)=>{
+        const tr = document.createElement('tr');
+        const nameTd = document.createElement('td'); nameTd.textContent = s.name || '--';
+        const rollTd = document.createElement('td'); rollTd.textContent = s.roll || '--';
+        const statusTd = document.createElement('td');
+        const actionsTd = document.createElement('td');
+
+        const statusWrap = document.createElement('div'); statusWrap.className='presence';
+        ['present','absent','late'].forEach(st=>{
+          const btn = document.createElement('button'); btn.className='pill '+(st==='present'? 'present': st==='absent'? 'absent' : 'late'); btn.style.border='none';
+          btn.textContent = st.charAt(0).toUpperCase()+st.slice(1);
+          btn.addEventListener('click', ()=>{ s.status = st; saveState(); render(); });
+          statusWrap.appendChild(btn);
+        });
+        statusTd.appendChild(statusWrap);
+
+        const editBtn = document.createElement('button'); editBtn.className='ghost'; editBtn.textContent='Edit';
+        editBtn.addEventListener('click', ()=>{ const n = prompt('Edit name', s.name); if(n!==null){ s.name = n.trim(); saveState(); render(); } });
+
+        const delBtn = document.createElement('button'); delBtn.className='ghost'; delBtn.textContent='Delete';
+        delBtn.addEventListener('click', ()=>{ if(confirm('Delete this student?')){ state.classes[k].students = state.classes[k].students.filter(x=>x!==s); saveState(); render(); } });
+
+        actionsTd.appendChild(editBtn); actionsTd.appendChild(delBtn);
+
+        tr.appendChild(nameTd); tr.appendChild(rollTd); tr.appendChild(statusTd); tr.appendChild(actionsTd);
+        studentsTableBody.appendChild(tr);
+      });
+
+      // summary
+      const total = list.length; const present = list.filter(s=>s.status==='present').length; const absent = list.filter(s=>s.status==='absent').length; const late = list.filter(s=>s.status==='late').length;
+      summaryText.textContent = `Date: ${dateInput.value} • Class: ${classNameInput.value || 'default'} • Total ${total} — Present ${present} / Absent ${absent} / Late ${late}`;
+    }
+
+    function addStudent(name, roll){ ensureList(); const k=getKey(); if(!name || !name.trim()) return; state.classes[k].students.push({name:name.trim(), roll: roll?roll.trim(): '', status:'absent'}); saveState(); render(); }
+
+    // events
+    addStudentBtn.addEventListener('click', ()=>{ addStudent(newName.value, newRoll.value); newName.value=''; newRoll.value=''; });
+    searchInput.addEventListener('input', render);
+    dateInput.addEventListener('change', ()=>{ render(); });
+    classNameInput.addEventListener('change', ()=>{ render(); });
+
+    btnExport.addEventListener('click', ()=>{
+      const k=getKey(); ensureList(); const payload = {meta:{key:k,date:dateInput.value,class:classNameInput.value||'default'},students: state.classes[k].students};
+      const csv = toCSV(payload.students);
+      const blob = new Blob([csv], {type:'text/csv'});
+      const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = `attendance-${dateInput.value || 'unknown'}-${classNameInput.value || 'class'}.csv`; a.click();
+    });
+
+    btnImport.addEventListener('click', ()=> fileImport.click());
+    fileImport.addEventListener('change', (ev)=>{
+      const f = ev.target.files[0]; if(!f) return; const reader = new FileReader(); reader.onload = e=>{
+        const text = e.target.result; const parsed = csvToArray(text);
+        // adopt into current class/date
+        ensureList(); const k=getKey(); state.classes[k].students = parsed.map(r=>({name:r.Name||r.name||'', roll:r.Roll||r.roll||'', status:r.Status? r.Status.toLowerCase(): 'absent'})); saveState(); render();
+      }; reader.readAsText(f);
+      fileImport.value='';
+    });
+
+    loadSample.addEventListener('click', ()=>{
+      classNameInput.value = '10-A'; dateInput.value = todayISO(); const k=getKey(); state.classes[k] = {students:[
+        {name:'Aarav Kumar',roll:'01',status:'present'}, {name:'Meera Singh',roll:'02',status:'absent'}, {name:'Rohan Patil',roll:'03',status:'present'}, {name:'Sana Rao',roll:'04',status:'late'}
+      ]}; saveState(); render();
+    });
+
+    clearAll.addEventListener('click', ()=>{ if(confirm('Clear all stored attendance data? This cannot be undone.')){ localStorage.removeItem(STORAGE_KEY); state = {classes:{}}; render(); } });
+
+    markAllPresent.addEventListener('click', ()=>{ const k=getKey(); ensureList(); state.classes[k].students.forEach(s=>s.status='present'); saveState(); render(); });
+    markAllAbsent.addEventListener('click', ()=>{ const k=getKey(); ensureList(); state.classes[k].students.forEach(s=>s.status='absent'); saveState(); render(); });
+    markAllLate.addEventListener('click', ()=>{ const k=getKey(); ensureList(); state.classes[k].students.forEach(s=>s.status='late'); saveState(); render(); });
+
+    printBtn.addEventListener('click', ()=>{
+      window.print();
+    });
+
+    // small CSV helpers
+    function toCSV(rows){ const header = ['Name','Roll','Status']; const lines = [header.join(',')]; rows.forEach(r=>{ lines.push([escapeCSV(r.name), escapeCSV(r.roll), escapeCSV(r.status||'absent')].join(',')); }); return lines.join('\n'); }
+    function escapeCSV(v){ if(v==null) return ''; if((v+'').includes(',')) return '"'+(v+'').replace(/"/g,'""')+'"'; return v; }
+
+    function csvToArray(text){ const lines = text.trim().split(/\r?\n/).filter(Boolean); if(lines.length===0) return [];
+      const headers = lines[0].split(/,(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)/).map(h=>h.replace(/^\"|\"$/g,'').trim()); const arr=[];
+      for(let i=1;i<lines.length;i++){ const cols = lines[i].split(/,(?=(?:[^\"]*\"[^\"]*\")*[^\"]*$)/).map(c=>c.replace(/^\"|\"$/g,'')); const obj = {}; headers.forEach((h,idx)=> obj[h]=cols[idx]||''); arr.push(obj); }
+      return arr;
+    }
+
+    // initial render
+    render();
+
+  </script>
+</body>
+</html>
